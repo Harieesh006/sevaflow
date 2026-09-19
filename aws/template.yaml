@@ -5,8 +5,7 @@ Description: SevaFlow AI civic issue intelligence backend
 Parameters:
   BedrockModelId:
     Type: String
-    Default: amazon.nova-2-lite-v1:0
-    Description: Regional model ID or cross-region inference profile ID
+    Description: Required regional model ID or cross-region inference profile ID returned by the preflight
   ProjectName:
     Type: String
     Default: sevaflow

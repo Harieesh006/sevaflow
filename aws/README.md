@@ -1,6 +1,6 @@
 # SevaFlow AWS backend
 
-This directory contains the deployable AWS backend for SevaFlow. The stack is parameterized so `BedrockModelId` can be either a regional foundation model or a supported cross-Region inference profile.
+This directory contains the deployable AWS backend for SevaFlow. The existing SevaFlow UI and API contract remain unchanged. The application/data plane is intended for **`ap-south-1` (Mumbai)**; Bedrock model execution is selected separately through the required `BEDROCK_MODEL_ID` parameter and may use a regional model or a supported cross-Region inference profile.
 
 ## Architecture
 
@@ -8,32 +8,47 @@ The SAM stack provisions an encrypted S3 media bucket, a pay-per-request DynamoD
 
 ## Current AWS account status
 
-The authenticated profile is `harieesh` in account `360734036325`, with the project Region configured as `eu-north-1`. Bedrock model discovery is available and `amazon.nova-2-lite-v1:0` is active. Actual Bedrock invocation is currently blocked by AWS account verification, and DynamoDB currently reports a subscription-required restriction. No billable resources were created while these restrictions were active.
+The authenticated profile is `harieesh` in account `360734036325`. The application target is `ap-south-1` (Mumbai). The non-mutating Mumbai preflight currently fails because the account is not yet subscribed to S3, DynamoDB, or Transcribe there, and Bedrock has not returned a verified model/profile in Mumbai. No billable resources were created.
 
-## Deploy after AWS verification
+## Preflight gate
 
-From this directory, install or run AWS SAM CLI, then deploy with the authenticated profile:
+Run the read-only preflight after AWS account verification and after choosing the exact Nova 2 Lite model or inference-profile ID shown by the account:
 
 ```bash
-sam build --template-file template.yaml
+chmod +x aws/preflight.sh
+aws/preflight.sh \
+  --profile harieesh \
+  --region ap-south-1 \
+  --model-id <verified-nova-2-lite-model-or-inference-profile-id>
+```
+
+The preflight checks AWS identity, Bedrock model/profile availability, DynamoDB permissions, S3 permissions, and Transcribe permissions. It never creates, updates, deletes, or deploys resources. A failed check stops the process before any billable resource creation.
+
+## Deploy only after preflight passes
+
+Install or run AWS SAM CLI, then review the change set before executing deployment:
+
+```bash
+sam build --template-file aws/template.yaml
 sam deploy \
   --template-file .aws-sam/build/template.yaml \
   --stack-name sevaflow-backend \
-  --region eu-north-1 \
+  --region ap-south-1 \
   --profile harieesh \
   --capabilities CAPABILITY_IAM \
   --resolve-s3 \
-  --parameter-overrides ProjectName=sevaflow BedrockModelId=amazon.nova-2-lite-v1:0
+  --parameter-overrides ProjectName=sevaflow BedrockModelId=<verified-nova-2-lite-model-or-inference-profile-id> \
+  --no-execute-changeset
 ```
 
-For a supported cross-Region inference profile, replace the model parameter, for example `eu.amazon.nova-2-lite-v1:0` or `global.amazon.nova-2-lite-v1:0`, after confirming availability in the selected source Region.
+Execute the reviewed change set separately. `BedrockModelId` is intentionally required; there is no hard-coded regional Bedrock model ID in the template or Lambda handler.
 
 After deployment, capture the `ApiUrl`, `ReportsTableName`, and `MediaBucketName` outputs. The SevaFlow frontend should use the API URL for report analysis, report creation, dashboard reads, and voice transcription polling.
 
-## Smoke tests
+## Smoke tests after deployment
 
 ```bash
-API_URL="https://...execute-api.eu-north-1.amazonaws.com"
+API_URL="https://...execute-api.ap-south-1.amazonaws.com"
 curl -sS "$API_URL/dashboard"
 curl -sS -X POST "$API_URL/reports/analyze" \
   -H 'content-type: application/json' \

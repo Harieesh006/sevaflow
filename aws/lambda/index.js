@@ -8,7 +8,7 @@ const { DynamoDBDocumentClient, PutCommand, ScanCommand } = require("@aws-sdk/li
 const region = process.env.AWS_REGION;
 const tableName = process.env.REPORTS_TABLE;
 const mediaBucket = process.env.MEDIA_BUCKET;
-const modelId = process.env.BEDROCK_MODEL_ID || "amazon.nova-2-lite-v1:0";
+const modelId = process.env.BEDROCK_MODEL_ID;
 const bedrock = new BedrockRuntimeClient({ region });
 const s3 = new S3Client({ region });
 const transcribe = new TranscribeClient({ region });
@@ -62,6 +62,7 @@ async function getMediaBlock(mediaKey) {
 }
 
 async function assess(input) {
+  if (!modelId) throw new Error("BEDROCK_MODEL_ID is required");
   const media = input.source === "Photo" ? await getMediaBlock(input.mediaKey) : null;
   const content = [{ text: `Resident description:\n${input.description}\n\nReported location:\n${input.location || "Location not provided"}` }];
   if (media) content.push(media);

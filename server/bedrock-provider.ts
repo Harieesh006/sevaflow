@@ -10,6 +10,9 @@ const client = new BedrockRuntimeClient({
 });
 
 export async function assessIssueWithBedrock(input: { description: string; location: string }): Promise<StructuredAssessment> {
+  if (!ENV.bedrockModelId) {
+    throw new Error("BEDROCK_MODEL_ID is required when SEVAFLOW_AI_PROVIDER=bedrock");
+  }
   const command = new ConverseCommand({
     modelId: ENV.bedrockModelId,
     system: [{ text: "You are SevaFlow's issue intelligence engine. Convert a resident complaint into an operational service request. Use the requested tool only. Be conservative, separate evidence from assumptions, and never invent a government integration." }],
