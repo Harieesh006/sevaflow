@@ -33,7 +33,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { analyzeDescription, type Assessment, type Priority } from "@/lib/issue-intelligence";
+import { trpc } from "@/lib/trpc";
+import { type Assessment, type Priority } from "@/lib/issue-intelligence";
 
 
 type ReportStatus = "New" | "Assigned" | "In progress" | "Resolved";
@@ -51,68 +52,6 @@ type Report = {
   source: "Photo" | "Text" | "Voice";
   createdAt: string;
 };
-
-const initialReports: Report[] = [
-  {
-    id: "SF-1027",
-    category: "Waste management",
-    shortCategory: "Waste",
-    priority: "High",
-    location: "Anna Nagar bus stop",
-    summary: "Accumulated waste beside the public bus stop.",
-    department: "Municipal sanitation",
-    status: "Assigned",
-    confidence: 91,
-    source: "Photo",
-    createdAt: "2 min ago",
-  },
-  {
-    id: "SF-1026",
-    category: "Road maintenance",
-    shortCategory: "Roads",
-    priority: "Medium",
-    location: "2nd Avenue, Anna Nagar",
-    summary: "Pothole widening across the left lane.",
-    department: "Roads & infrastructure",
-    status: "In progress",
-    confidence: 87,
-    source: "Text",
-    createdAt: "18 min ago",
-  },
-  {
-    id: "SF-1025",
-    category: "Street lighting",
-    shortCategory: "Light",
-    priority: "High",
-    location: "College gate, Shenoy Nagar",
-    summary: "Streetlight has been out for three nights.",
-    department: "Electrical services",
-    status: "New",
-    confidence: 94,
-    source: "Voice",
-    createdAt: "31 min ago",
-  },
-  {
-    id: "SF-1024",
-    category: "Water & drainage",
-    shortCategory: "Water",
-    priority: "Low",
-    location: "B Block, Thirumangalam",
-    summary: "Slow leak from a roadside water valve.",
-    department: "Water works",
-    status: "Resolved",
-    confidence: 82,
-    source: "Text",
-    createdAt: "1 hr ago",
-  },
-];
-
-const categoryBars = [
-  { label: "Waste", value: 78, color: "bg-[#d9f06b]" },
-  { label: "Roads", value: 61, color: "bg-[#69c2bc]" },
-  { label: "Water", value: 42, color: "bg-[#ff9f6e]" },
-  { label: "Light", value: 34, color: "bg-[#ad9cf3]" },
-];
 
 function priorityStyles(priority: Priority) {
   if (priority === "High") return "bg-[#ffe3d6] text-[#a53d17]";
@@ -260,7 +199,7 @@ function CitizenView({
                   </div>
                   <div className="mt-5 rounded-2xl bg-white/80 p-4"><SectionLabel>Summary</SectionLabel><p className="mt-2 text-sm leading-6 text-[#496868]">{assessment.summary}</p></div>
                 </div>
-                <div className="rounded-2xl bg-[#173b3b] p-4 text-[#eef8e9]"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#d9f06b]"><Route className="h-4 w-4" /> Suggested action</div><p className="mt-3 text-sm leading-6 text-[#e3eee2]">{assessment.suggestedAction}</p><div className="mt-5 border-t border-white/10 pt-4"><SectionLabel>Observed in input</SectionLabel><ul className="mt-3 space-y-2">{assessment.observed.map((item) => <li key={item} className="flex items-start gap-2 text-xs leading-5 text-[#bfd4c9]"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#d9f06b]" />{item}</li>)}</ul></div></div>
+                <div className="rounded-2xl bg-[#173b3b] p-4 text-[#eef8e9]"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#d9f06b]"><Route className="h-4 w-4" /> Suggested action</div><p className="mt-3 text-sm leading-6 text-[#e3eee2]">{assessment.suggestedAction}</p><div className="mt-5 border-t border-white/10 pt-4"><SectionLabel>Evidence from input</SectionLabel><ul className="mt-3 space-y-2">{assessment.evidence.map((item) => <li key={item} className="flex items-start gap-2 text-xs leading-5 text-[#bfd4c9]"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#d9f06b]" />{item}</li>)}</ul></div></div>
               </div>
               <div className="flex flex-col gap-3 border-t border-[#dcebdd] bg-white/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-2 text-xs text-[#6d8980]"><ShieldCheck className="h-4 w-4 text-[#3fb69f]" /> You can review before sending.</div><Button onClick={onSubmit} className="h-11 rounded-xl bg-[#d9f06b] px-5 font-bold text-[#173b3b] hover:bg-[#cce65a]"><Send className="mr-2 h-4 w-4" /> Submit report</Button></div>
             </div>
@@ -277,25 +216,62 @@ function CitizenView({
   );
 }
 
-function DashboardView({ reports, onBackToReport }: { reports: Report[]; onBackToReport: () => void }) {
+type DashboardMetrics = {
+  total: number;
+  highPriority: number;
+  open: number;
+  resolved: number;
+  categoryDistribution: Array<{ label: string; value: number }>;
+  hotspot: { category: string; location: string; reportCount: number } | null;
+};
+
+const EMPTY_DASHBOARD: DashboardMetrics = {
+  total: 0,
+  highPriority: 0,
+  open: 0,
+  resolved: 0,
+  categoryDistribution: [],
+  hotspot: null,
+};
+
+type BackendReport = Omit<Report, "createdAt"> & { createdAt: Date | string };
+
+function toDisplayReport(report: BackendReport): Report {
+  const timestamp = new Date(report.createdAt);
+  return {
+    ...report,
+    createdAt: Number.isNaN(timestamp.getTime()) ? "recently" : timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  };
+}
+
+function DashboardView({ reports, metrics, onBackToReport }: { reports: Report[]; metrics: DashboardMetrics; onBackToReport: () => void }) {
   const [selectedId, setSelectedId] = useState(reports[0]?.id ?? "SF-1027");
   const [filter, setFilter] = useState<"All" | Priority>("All");
   const [query, setQuery] = useState("");
   const selected = reports.find((report) => report.id === selectedId) ?? reports[0];
   const filteredReports = useMemo(() => reports.filter((report) => (filter === "All" || report.priority === filter) && `${report.id} ${report.summary} ${report.location}`.toLowerCase().includes(query.toLowerCase())), [filter, query, reports]);
-  const highCount = reports.filter((report) => report.priority === "High").length + 14;
-  const openCount = reports.filter((report) => report.status !== "Resolved").length + 89;
+  const highCount = metrics.highPriority;
+  const openCount = metrics.open;
+  const liveCategoryBars = useMemo(() => {
+    const colors = ["bg-[#d9f06b]", "bg-[#69c2bc]", "bg-[#ff9f6e]", "bg-[#ad9cf3]"];
+    const max = Math.max(...metrics.categoryDistribution.map((item) => item.value), 1);
+    return metrics.categoryDistribution.map((item, index) => ({
+      label: item.label,
+      value: Math.round((item.value / max) * 100),
+      color: colors[index % colors.length],
+    }));
+  }, [metrics.categoryDistribution]);
 
   return (
     <main className="mx-auto max-w-[1440px] px-5 pb-12 pt-8 lg:px-10 lg:pt-10">
       <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between"><div><div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[#173b3b] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.15em] text-[#d9f06b]"><span className="h-1.5 w-1.5 rounded-full bg-[#d9f06b]" /> Operations live</div><h1 className="font-display text-4xl font-bold tracking-[-0.065em] text-[#173b3b] sm:text-5xl">Command center</h1><p className="mt-3 max-w-[590px] text-sm leading-6 text-[#6d8380]">A clear view of what residents are reporting, where signals are clustering, and which teams need to move next.</p></div><Button onClick={onBackToReport} variant="outline" className="h-11 rounded-xl border-[#cbd9cf] bg-transparent font-bold text-[#315252] hover:bg-[#eef5e7]"><ImagePlus className="mr-2 h-4 w-4" /> Create a report</Button></div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[{ label: "Total reports", value: reports.length + 123, change: "+12% this week", icon: TicketCheck, accent: "bg-[#e6f1d2] text-[#6d8b38]" }, { label: "High priority", value: highCount, change: "Needs attention", icon: CircleAlert, accent: "bg-[#ffe6dc] text-[#bf5935]" }, { label: "Open requests", value: openCount, change: "Across 6 teams", icon: Clock3, accent: "bg-[#e1f3f1] text-[#36877d]" }, { label: "Resolved today", value: 34, change: "+8 since 9 AM", icon: Check, accent: "bg-[#e4f5e9] text-[#27815e]" }].map(({ label, value, change, icon: Icon, accent }) => <div key={label} className="rounded-2xl border border-[#dfe7dd] bg-[#fffefa] p-5 shadow-[0_10px_26px_rgba(28,59,57,0.04)]"><div className="flex items-start justify-between"><div><div className="text-xs font-bold text-[#769090]">{label}</div><div className="mt-3 font-display text-3xl font-bold tracking-[-0.06em] text-[#173b3b]">{value}</div></div><div className={`flex h-9 w-9 items-center justify-center rounded-xl ${accent}`}><Icon className="h-4 w-4" /></div></div><div className="mt-4 text-[11px] font-semibold text-[#6f8c7d]">{change}</div></div>)}</div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[{ label: "Total reports", value: metrics.total, change: "From persistent reports", icon: TicketCheck, accent: "bg-[#e6f1d2] text-[#6d8b38]" }, { label: "High priority", value: highCount, change: "Needs attention", icon: CircleAlert, accent: "bg-[#ffe6dc] text-[#bf5935]" }, { label: "Open requests", value: openCount, change: "Across 6 teams", icon: Clock3, accent: "bg-[#e1f3f1] text-[#36877d]" }, { label: "Resolved today", value: metrics.resolved, change: "From persistent reports", icon: Check, accent: "bg-[#e4f5e9] text-[#27815e]" }].map(({ label, value, change, icon: Icon, accent }) => <div key={label} className="rounded-2xl border border-[#dfe7dd] bg-[#fffefa] p-5 shadow-[0_10px_26px_rgba(28,59,57,0.04)]"><div className="flex items-start justify-between"><div><div className="text-xs font-bold text-[#769090]">{label}</div><div className="mt-3 font-display text-3xl font-bold tracking-[-0.06em] text-[#173b3b]">{value}</div></div><div className={`flex h-9 w-9 items-center justify-center rounded-xl ${accent}`}><Icon className="h-4 w-4" /></div></div><div className="mt-4 text-[11px] font-semibold text-[#6f8c7d]">{change}</div></div>)}</div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.36fr_0.64fr]">
         <section className="rounded-[24px] border border-[#dfe7dd] bg-[#fffefa] p-5 shadow-[0_10px_26px_rgba(28,59,57,0.04)] sm:p-6"><div className="flex flex-col gap-4 border-b border-[#e6ece4] pb-5 sm:flex-row sm:items-center sm:justify-between"><div><SectionLabel>Incoming signals</SectionLabel><h2 className="mt-2 font-display text-xl font-bold tracking-[-0.04em] text-[#173b3b]">Recent reports</h2></div><div className="flex gap-2"><div className="relative"><Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#94a9a0]" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="h-9 w-[130px] rounded-xl border-[#dfe7dd] bg-[#fbfcf8] pl-9 text-xs shadow-none" /></div><button onClick={() => setFilter(filter === "All" ? "High" : filter === "High" ? "Medium" : "All")} className="flex h-9 items-center gap-2 rounded-xl border border-[#dfe7dd] bg-[#fbfcf8] px-3 text-xs font-bold text-[#55726d]"><Filter className="h-3.5 w-3.5" /> {filter}</button></div></div><div className="mt-2">{filteredReports.map((report) => <button type="button" key={report.id} onClick={() => setSelectedId(report.id)} className={`flex w-full items-center gap-3 border-b border-[#edf1eb] py-4 text-left transition-colors last:border-0 ${selectedId === report.id ? "-mx-2 rounded-xl bg-[#f2f8ea] px-2" : "hover:bg-[#fbfcf8]"}`}><div className="hidden h-9 w-9 items-center justify-center rounded-xl bg-[#e8f1e8] text-[#468d7d] sm:flex"><FileImage className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-bold text-[#315252]">{report.id}</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${priorityStyles(report.priority)}`}>{report.priority}</span><span className="text-[10px] text-[#94a69f]">{report.source}</span></div><div className="mt-1 truncate text-sm font-semibold text-[#4e6967]">{report.summary}</div><div className="mt-1 flex items-center gap-1 text-[11px] text-[#8aa09a]"><MapPin className="h-3 w-3" /> {report.location} · {report.createdAt}</div></div><div className="hidden items-center gap-2 text-right md:flex"><div><div className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${statusStyles(report.status)}`}>{report.status}</div><div className="mt-1 text-[10px] text-[#8ca099]">{report.department}</div></div><ChevronRight className="h-4 w-4 text-[#9cb0a8]" /></div></button>)}{filteredReports.length === 0 ? <div className="py-10 text-center text-sm text-[#7f9790]">No reports match this view.</div> : null}</div></section>
 
-        <div className="space-y-6"><section className="rounded-[24px] bg-[#173b3b] p-6 text-[#f0f5ea] shadow-[0_12px_30px_rgba(23,59,59,0.12)]"><div className="flex items-start justify-between"><div><SectionLabel>Emerging hotspot</SectionLabel><h2 className="mt-2 font-display text-2xl font-bold tracking-[-0.05em] text-white">Anna Nagar bus stop</h2></div><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#d9f06b] text-[#173b3b]"><Zap className="h-5 w-5" /></div></div><div className="mt-6 flex items-end justify-between border-b border-white/10 pb-5"><div><div className="font-display text-4xl font-bold tracking-[-0.08em] text-[#d9f06b]">20</div><div className="mt-1 text-xs text-[#a8c1b5]">related reports this week</div></div><div className="text-right"><div className="inline-flex rounded-full bg-[#ffe3d6] px-2.5 py-1 text-[10px] font-bold text-[#a53d17]">High priority</div><div className="mt-2 text-xs text-[#a8c1b5]">Waste accumulation</div></div></div><div className="mt-5 flex gap-3"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/10"><Route className="h-4 w-4 text-[#d9f06b]" /></div><div><div className="text-xs font-bold text-[#e9f2e8]">Recommended next action</div><p className="mt-1 text-xs leading-5 text-[#a8c1b5]">Deploy sanitation team for an inspection and collection sweep.</p></div></div></section><section className="rounded-[24px] border border-[#dfe7dd] bg-[#fffefa] p-6 shadow-[0_10px_26px_rgba(28,59,57,0.04)]"><div className="flex items-center justify-between"><div><SectionLabel>Category distribution</SectionLabel><h2 className="mt-2 font-display text-xl font-bold tracking-[-0.04em] text-[#173b3b]">What’s being reported</h2></div><MoreHorizontal className="h-5 w-5 text-[#9eaea7]" /></div><div className="mt-6 space-y-4">{categoryBars.map((bar) => <div key={bar.label}><div className="mb-2 flex items-center justify-between text-xs font-bold text-[#57716d]"><span>{bar.label}</span><span>{bar.value}%</span></div><div className="h-2 overflow-hidden rounded-full bg-[#edf1ea]"><div className={`h-full rounded-full ${bar.color}`} style={{ width: `${bar.value}%` }} /></div></div>)}</div></section></div>
+        <div className="space-y-6"><section className="rounded-[24px] bg-[#173b3b] p-6 text-[#f0f5ea] shadow-[0_12px_30px_rgba(23,59,59,0.12)]">{metrics.hotspot ? <><div className="flex items-start justify-between"><div><SectionLabel>Emerging hotspot</SectionLabel><h2 className="mt-2 font-display text-2xl font-bold tracking-[-0.05em] text-white">{metrics.hotspot.location}</h2></div><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#d9f06b] text-[#173b3b]"><Zap className="h-5 w-5" /></div></div><div className="mt-6 flex items-end justify-between border-b border-white/10 pb-5"><div><div className="font-display text-4xl font-bold tracking-[-0.08em] text-[#d9f06b]">{metrics.hotspot.reportCount}</div><div className="mt-1 text-xs text-[#a8c1b5]">related reports in this cluster</div></div><div className="text-right"><div className="inline-flex rounded-full bg-[#ffe3d6] px-2.5 py-1 text-[10px] font-bold text-[#a53d17]">Operational signal</div><div className="mt-2 text-xs text-[#a8c1b5]">{metrics.hotspot.category}</div></div></div><div className="mt-5 flex gap-3"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/10"><Route className="h-4 w-4 text-[#d9f06b]" /></div><div><div className="text-xs font-bold text-[#e9f2e8]">Recommended next action</div><p className="mt-1 text-xs leading-5 text-[#a8c1b5]">Review the cluster and dispatch the team responsible for {metrics.hotspot.category.toLowerCase()}.</p></div></div></> : <div className="flex min-h-[210px] flex-col justify-center"><SectionLabel>Emerging hotspot</SectionLabel><h2 className="mt-2 font-display text-2xl font-bold tracking-[-0.05em] text-white">Waiting for a signal</h2><p className="mt-3 text-sm leading-6 text-[#a8c1b5]">As reports accumulate, SevaFlow will surface repeated category + location combinations here.</p></div>}</section><section className="rounded-[24px] border border-[#dfe7dd] bg-[#fffefa] p-6 shadow-[0_10px_26px_rgba(28,59,57,0.04)]"><div className="flex items-center justify-between"><div><SectionLabel>Category distribution</SectionLabel><h2 className="mt-2 font-display text-xl font-bold tracking-[-0.04em] text-[#173b3b]">What’s being reported</h2></div><MoreHorizontal className="h-5 w-5 text-[#9eaea7]" /></div><div className="mt-6 space-y-4">{liveCategoryBars.map((bar) => <div key={bar.label}><div className="mb-2 flex items-center justify-between text-xs font-bold text-[#57716d]"><span>{bar.label}</span><span>{bar.value}%</span></div><div className="h-2 overflow-hidden rounded-full bg-[#edf1ea]"><div className={`h-full rounded-full ${bar.color}`} style={{ width: `${bar.value}%` }} /></div></div>)}</div></section></div>
       </div>
 
       {selected ? <section className="mt-6 rounded-[24px] border border-[#dfe7dd] bg-[#fffefa] p-6 shadow-[0_10px_26px_rgba(28,59,57,0.04)]"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-3"><SectionLabel>Selected service request</SectionLabel><span className="rounded-full bg-[#e8f1e8] px-2.5 py-1 text-[10px] font-bold text-[#468d7d]">{selected.id}</span></div><h2 className="mt-3 font-display text-2xl font-bold tracking-[-0.05em] text-[#173b3b]">{selected.category}</h2><p className="mt-2 max-w-[680px] text-sm leading-6 text-[#6d8380]">{selected.summary}</p></div><div className={`inline-flex self-start rounded-full px-3 py-1.5 text-xs font-bold ${statusStyles(selected.status)}`}>{selected.status}</div></div><div className="mt-6 grid gap-4 border-t border-[#e6ece4] pt-5 sm:grid-cols-2 lg:grid-cols-4"><div><SectionLabel>Location</SectionLabel><div className="mt-2 flex items-center gap-2 text-sm font-bold text-[#315252]"><MapPin className="h-4 w-4 text-[#3fb69f]" /> {selected.location}</div></div><div><SectionLabel>Department</SectionLabel><div className="mt-2 text-sm font-bold text-[#315252]">{selected.department}</div></div><div><SectionLabel>AI confidence</SectionLabel><div className="mt-2 text-sm font-bold text-[#315252]">{selected.confidence}% <span className="ml-1 text-xs font-normal text-[#89a099]">structured</span></div></div><div><SectionLabel>Timeline</SectionLabel><div className="mt-2 flex items-center gap-2 text-sm font-bold text-[#315252]"><Clock3 className="h-4 w-4 text-[#3fb69f]" /> {selected.createdAt}</div></div></div><div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl bg-[#f4f8ef] p-4 text-xs text-[#617c73]"><div className="flex items-center gap-2 font-bold text-[#397e70]"><Check className="h-4 w-4" /> Report created</div><ChevronRight className="h-3.5 w-3.5 text-[#a7bab0]" /><div className="flex items-center gap-2"><Check className="h-4 w-4 text-[#7ab296]" /> AI analyzed</div><ChevronRight className="h-3.5 w-3.5 text-[#a7bab0]" /><div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-[#f2ae42]" /> Department action pending</div></div></section> : null}
@@ -311,50 +287,61 @@ export default function Home() {
   const [filePreview, setFilePreview] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
-  const [reports, setReports] = useState<Report[]>(initialReports);
+  const [source, setSource] = useState<Report["source"]>("Text");
   const [submittedReport, setSubmittedReport] = useState<Report | null>(null);
+  const reportsQuery = trpc.reports.list.useQuery({ limit: 100 });
+  const dashboardQuery = trpc.reports.dashboard.useQuery();
+  const analyzeMutation = trpc.reports.analyze.useMutation();
+  const createMutation = trpc.reports.create.useMutation();
+  const reports = useMemo(() => (reportsQuery.data ?? []).map((report) => toDisplayReport(report as BackendReport)), [reportsQuery.data]);
+  const metrics = dashboardQuery.data ?? EMPTY_DASHBOARD;
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
+    setSource("Photo");
     setFilePreview(URL.createObjectURL(file));
-    toast.success("Photo added", { description: "The image will be included in the assessment." });
+    toast.success("Photo staged", { description: "S3 media persistence is the next integration layer." });
   };
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     if (!description.trim()) return;
     setAnalyzing(true);
     setSubmittedReport(null);
-    window.setTimeout(() => {
-      setAssessment(analyzeDescription(description));
+    try {
+      const result = await analyzeMutation.mutateAsync({ description, location });
+      setAssessment(result);
+    } catch (error) {
+      toast.error("Assessment unavailable", { description: error instanceof Error ? error.message : "Please try again." });
+    } finally {
       setAnalyzing(false);
-    }, 850);
+    }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!assessment) return;
-    const report: Report = {
-      id: `SF-${1028 + reports.length - initialReports.length}`,
-      category: assessment.category,
-      shortCategory: assessment.shortCategory,
-      priority: assessment.priority,
-      location: location || "Location pending",
-      summary: assessment.summary,
-      department: assessment.department,
-      status: "New",
-      confidence: assessment.confidence,
-      source: fileName ? "Photo" : "Text",
-      createdAt: "just now",
-    };
-    setReports((current) => [report, ...current]);
-    setSubmittedReport(report);
-    toast.success("Report created", { description: `${report.id} is ready for routing.` });
+    try {
+      const created = await createMutation.mutateAsync({
+        description,
+        location,
+        source,
+        assessment,
+      });
+      const report = toDisplayReport(created as BackendReport);
+      setSubmittedReport(report);
+      setAssessment(null);
+      await Promise.all([reportsQuery.refetch(), dashboardQuery.refetch()]);
+      toast.success("Report persisted", { description: `${report.id} is saved and ready for routing.` });
+    } catch (error) {
+      toast.error("Could not save report", { description: error instanceof Error ? error.message : "Please try again." });
+    }
   };
 
   const handleVoice = () => {
+    setSource("Voice");
     setDescription("Anna Nagar bus stop pakkathula romba garbage irukku. Four days ah clean pannala.");
-    toast.info("Voice note transcribed", { description: "Demo transcript inserted for review." });
+    toast.info("Voice input staged", { description: "Transcribe integration is queued after the core AI + persistence path." });
   };
 
   return (
@@ -363,7 +350,7 @@ export default function Home() {
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-4 lg:px-10"><button type="button" onClick={() => setView("report")} aria-label="Go to SevaFlow home"><AppMark /></button><div className="hidden items-center gap-2 rounded-full border border-[#dfe7dd] bg-[#fbfcf8] p-1 md:flex"><button type="button" onClick={() => setView("report")} className={`rounded-full px-4 py-2 text-xs font-bold transition-colors ${view === "report" ? "bg-[#173b3b] text-white" : "text-[#6f8781] hover:text-[#315252]"}`}>Report an issue</button><button type="button" onClick={() => setView("dashboard")} className={`rounded-full px-4 py-2 text-xs font-bold transition-colors ${view === "dashboard" ? "bg-[#173b3b] text-white" : "text-[#6f8781] hover:text-[#315252]"}`}>Command center</button></div><div className="flex items-center gap-3"><div className="hidden items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#77918a] sm:flex"><Cloud className="h-3.5 w-3.5 text-[#3fb69f]" /> AWS-ready workflow</div><div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#dce5dc] bg-[#fffefa] text-xs font-bold text-[#315252]">AK</div></div></div>
       </header>
       <div className="mx-auto flex max-w-[1440px] items-center justify-between px-5 pb-2 pt-4 md:hidden"><button type="button" onClick={() => setView("report")} className={`rounded-full px-3 py-2 text-xs font-bold ${view === "report" ? "bg-[#173b3b] text-white" : "text-[#6f8781]"}`}>Report</button><button type="button" onClick={() => setView("dashboard")} className={`rounded-full px-3 py-2 text-xs font-bold ${view === "dashboard" ? "bg-[#173b3b] text-white" : "text-[#6f8781]"}`}>Command center</button></div>
-      {view === "report" ? <CitizenView description={description} setDescription={setDescription} location={location} setLocation={setLocation} fileName={fileName} filePreview={filePreview} onFileChange={handleFileChange} onAnalyze={handleAnalyze} analyzing={analyzing} assessment={assessment} onSubmit={handleSubmit} submittedReport={submittedReport} onVoice={handleVoice} /> : <DashboardView reports={reports} onBackToReport={() => setView("report")} />}
+      {view === "report" ? <CitizenView description={description} setDescription={setDescription} location={location} setLocation={setLocation} fileName={fileName} filePreview={filePreview} onFileChange={handleFileChange} onAnalyze={handleAnalyze} analyzing={analyzing} assessment={assessment} onSubmit={handleSubmit} submittedReport={submittedReport} onVoice={handleVoice} /> : <DashboardView reports={reports} metrics={metrics} onBackToReport={() => setView("report")} />}
       <footer className="mx-auto flex max-w-[1440px] flex-col gap-3 border-t border-[#dfe6da] px-5 py-6 text-[11px] text-[#8aa09a] sm:flex-row sm:items-center sm:justify-between lg:px-10"><div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-[#3fb69f]" /> SevaFlow AI · Structured service requests for everyday places</div><div className="flex items-center gap-4"><span>Assessment is assistive, not definitive.</span><span className="hidden text-[#6a8982] sm:inline-flex">S3 · Lambda · Bedrock · DynamoDB</span></div></footer>
     </div>
   );

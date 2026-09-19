@@ -1,29 +1,55 @@
 import { describe, expect, it } from "vitest";
-import { analyzeDescription } from "../client/src/lib/issue-intelligence";
+import { normalizeAssessment } from "./issue-intelligence";
 
-describe("SevaFlow demo assessment", () => {
-  it("routes a repeated garbage complaint to sanitation with high priority", () => {
-    const result = analyzeDescription("Garbage has been overflowing beside the bus stop for 4 days.");
+describe("SevaFlow structured assessment", () => {
+  it("normalizes strict model JSON into the UI contract", () => {
+    const result = normalizeAssessment({
+      category: "Waste management",
+      short_category: "Waste",
+      priority: "high",
+      confidence: 0.91,
+      summary: "Accumulated waste near a public bus stop.",
+      evidence: ["Visible waste accumulation", "Public roadside location"],
+      department: "Municipal sanitation",
+      suggested_action: "Schedule waste collection and inspect the location.",
+    });
 
-    expect(result.category).toBe("Waste management");
-    expect(result.department).toBe("Municipal sanitation");
-    expect(result.priority).toBe("High");
-    expect(result.confidence).toBeGreaterThan(90);
+    expect(result).toEqual({
+      category: "Waste management",
+      shortCategory: "Waste",
+      priority: "High",
+      confidence: 91,
+      summary: "Accumulated waste near a public bus stop.",
+      evidence: ["Visible waste accumulation", "Public roadside location"],
+      department: "Municipal sanitation",
+      suggestedAction: "Schedule waste collection and inspect the location.",
+    });
   });
 
-  it("routes a night streetlight issue to electrical services", () => {
-    const result = analyzeDescription("The street light near our college is dead at night.");
+  it("clamps invalid confidence values before they reach the UI", () => {
+    const low = normalizeAssessment({
+      category: "Road maintenance",
+      short_category: "Roads",
+      priority: "medium",
+      confidence: -0.2,
+      summary: "Road surface damage.",
+      evidence: ["Visible road damage"],
+      department: "Roads & infrastructure",
+      suggested_action: "Schedule inspection.",
+    });
+    const high = normalizeAssessment({
+      category: "Road maintenance",
+      short_category: "Roads",
+      priority: "high",
+      confidence: 1.4,
+      summary: "Road surface damage.",
+      evidence: ["Visible road damage"],
+      department: "Roads & infrastructure",
+      suggested_action: "Schedule inspection.",
+    });
 
-    expect(result.category).toBe("Street lighting");
-    expect(result.department).toBe("Electrical services");
-    expect(result.priority).toBe("High");
-  });
-
-  it("routes a pothole report to roads and infrastructure", () => {
-    const result = analyzeDescription("There is a deep pothole across the road near the bus stop.");
-
-    expect(result.category).toBe("Road maintenance");
-    expect(result.department).toBe("Roads & infrastructure");
-    expect(result.priority).toBe("High");
+    expect(low.confidence).toBe(0);
+    expect(high.confidence).toBe(100);
+    expect(high.priority).toBe("High");
   });
 });

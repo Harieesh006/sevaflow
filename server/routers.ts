@@ -2,27 +2,79 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
+import { assessIssue } from "./issue-intelligence";
+import { createReport, getDashboardMetrics, getReportById, getReports } from "./db";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
+const assessmentInput = z.object({
+  category: z.string().min(1),
+  shortCategory: z.string().min(1),
+  priority: z.enum(["High", "Medium", "Low"]),
+  confidence: z.number().int().min(0).max(100),
+  summary: z.string().min(1),
+  evidence: z.array(z.string()).min(1).max(4),
+  department: z.string().min(1),
+  suggestedAction: z.string().min(1),
+});
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
 
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  reports: router({
+    analyze: publicProcedure
+      .input(z.object({ description: z.string().min(8), location: z.string().max(255).default("") }))
+      .mutation(({ input }) => assessIssue(input)),
+
+    create: publicProcedure
+      .input(z.object({
+        description: z.string().min(8),
+        location: z.string().max(255).default("Location pending"),
+        source: z.enum(["Photo", "Text", "Voice"]).default("Text"),
+        imageUrl: z.string().optional(),
+        audioUrl: z.string().optional(),
+        assessment: assessmentInput,
+      }))
+      .mutation(async ({ input }) => {
+        const id = `SF-${nanoid(8).toUpperCase()}`;
+        const report = await createReport({
+          id,
+          description: input.description,
+          location: input.location || "Location pending",
+          source: input.source,
+          imageUrl: input.imageUrl,
+          audioUrl: input.audioUrl,
+          category: input.assessment.category,
+          shortCategory: input.assessment.shortCategory,
+          priority: input.assessment.priority,
+          confidence: input.assessment.confidence,
+          evidence: JSON.stringify(input.assessment.evidence),
+          summary: input.assessment.summary,
+          department: input.assessment.department,
+          suggestedAction: input.assessment.suggestedAction,
+          status: "New",
+        });
+        return report;
+      }),
+
+    list: publicProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(100).default(100) }).optional())
+      .query(({ input }) => getReports(input?.limit ?? 100)),
+
+    getById: publicProcedure
+      .input(z.object({ id: z.string().min(1) }))
+      .query(({ input }) => getReportById(input.id)),
+
+    dashboard: publicProcedure.query(() => getDashboardMetrics()),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
