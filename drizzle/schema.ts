@@ -18,6 +18,7 @@ export const reports = mysqlTable("reports", {
   location: varchar("location", { length: 255 }).notNull(),
   imageUrl: text("imageUrl"),
   audioUrl: text("audioUrl"),
+  attachments: text("attachments").notNull(),
   source: mysqlEnum("source", ["Photo", "Text", "Voice"]).default("Text").notNull(),
   category: varchar("category", { length: 120 }).notNull(),
   shortCategory: varchar("shortCategory", { length: 60 }).notNull(),

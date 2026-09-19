@@ -53,8 +53,25 @@ type Report = {
   createdAt: string;
 };
 
-type ImageAttachment = { id: string; name: string; url: string };
-type VoiceNote = { id: string; url: string; text: string; seconds: number };
+type ImageAttachment = { id: string; name: string; url: string; file: File };
+type VoiceNote = { id: string; url: string; text: string; seconds: number; storageKey: string; mimeType: string; uploadedAt: string };
+
+type ReportAttachment = {
+  type: "image" | "audio";
+  storageKey: string;
+  mimeType: string;
+  uploadedAt: string;
+  transcriptionRef?: string;
+};
+
+function fileToDataUrl(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read media file"));
+    reader.readAsDataURL(file);
+  });
+}
 
 function priorityStyles(priority: Priority) {
   if (priority === "High") return "bg-[#ffe3d6] text-[#a53d17]";
@@ -316,6 +333,7 @@ export default function Home() {
   const dashboardQuery = trpc.reports.dashboard.useQuery();
   const analyzeMutation = trpc.reports.analyze.useMutation();
   const createMutation = trpc.reports.create.useMutation();
+  const mediaUploadMutation = trpc.media.upload.useMutation();
   const transcribeMutation = trpc.voice.transcribe.useMutation();
   const reports = useMemo(() => (reportsQuery.data ?? []).map((report) => toDisplayReport(report as BackendReport)), [reportsQuery.data]);
   const metrics = dashboardQuery.data ?? EMPTY_DASHBOARD;
@@ -331,7 +349,7 @@ export default function Home() {
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     if (!files.length) return;
-    const additions = files.map((file) => ({ id: crypto.randomUUID(), name: file.name, url: URL.createObjectURL(file) }));
+    const additions = files.map((file) => ({ id: crypto.randomUUID(), name: file.name, url: URL.createObjectURL(file), file }));
     setImageAttachments((previous) => [...previous, ...additions]);
     setFileName(additions.map((file) => file.name).join(", "));
     setSource("Photo");
@@ -356,10 +374,23 @@ export default function Home() {
   const handleSubmit = async () => {
     if (!assessment) return;
     try {
+      const uploadedImages = await Promise.all(imageAttachments.map(async (image) => {
+        const uploaded = await mediaUploadMutation.mutateAsync({
+          dataBase64: await fileToDataUrl(image.file),
+          filename: image.name,
+          mimeType: image.file.type || "image/jpeg",
+        });
+        return { type: "image" as const, storageKey: uploaded.storageKey, mimeType: uploaded.mimeType, uploadedAt: uploaded.uploadedAt } satisfies ReportAttachment;
+      }));
+      const attachments: ReportAttachment[] = [
+        ...uploadedImages,
+        ...voiceNotes.map((note) => ({ type: "audio" as const, storageKey: note.storageKey, mimeType: note.mimeType, uploadedAt: note.uploadedAt, transcriptionRef: note.id })),
+      ];
       const created = await createMutation.mutateAsync({
         description,
         location,
         source,
+        attachments,
         assessment,
       });
       const report = toDisplayReport(created as BackendReport);
@@ -410,7 +441,7 @@ export default function Home() {
         try {
           toast.info("Transcribing voice note…", { description: "Your recording is being converted to text." });
           const transcript = await transcribeMutation.mutateAsync({ audioBase64, mimeType: blob.type || "audio/webm", language: "en" });
-          setVoiceNotes((previous) => [...previous, { id: crypto.randomUUID(), url: previewUrl, text: transcript.text, seconds: Math.max(1, Math.floor((Date.now() - startedAt) / 1000)) }]);
+          setVoiceNotes((previous) => [...previous, { id: crypto.randomUUID(), url: previewUrl, text: transcript.text, seconds: Math.max(1, Math.floor((Date.now() - startedAt) / 1000)), storageKey: transcript.attachment.storageKey, mimeType: transcript.attachment.mimeType, uploadedAt: transcript.attachment.uploadedAt }]);
           setSource("Voice");
           setDescription((previous) => previous.trim() ? `${previous.trim()}\n\n${transcript.text}` : transcript.text);
           toast.success("Voice transcribed", { description: "Review the text, then structure the report." });

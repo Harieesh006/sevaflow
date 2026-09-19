@@ -3,13 +3,13 @@
 **Prepared by:** Manus AI  
 **Project:** SevaFlow AI — From Complaint to Action  
 **Report date:** 19 September 2026  
-**Current checkpoint:** `d9306b72`
+**Current checkpoint:** `58655ec5` before this integration-stage revision
 
 ## Executive summary
 
 SevaFlow is a civic issue reporting and operations interface that converts resident complaints into structured service requests. The project now includes a polished citizen reporting experience, a persistent operations dashboard, server-side issue assessment, real browser voice recording and transcription, replayable voice notes, additive multi-image attachments, and an AWS deployment layer prepared for Mumbai.
 
-The existing user interface remains intact in its core visual language and navigation. The text path is operational through the current application backend. The voice path records from the browser, displays the recording for replay, transcribes the audio through the configured Whisper-compatible service, and appends the transcript to the editable complaint description. The image path supports multiple local previews and individual removal.
+The existing user interface remains intact in its core visual language and navigation. The text path is operational through the current application backend. The voice path records from the browser, displays the recording for replay, transcribes the audio through the configured Whisper-compatible service, and appends the transcript to the editable complaint description. The image path supports multiple previews, individual removal, platform storage upload, and report-level attachment persistence.
 
 AWS resources have **not** been deployed. Deployment is intentionally gated behind a read-only preflight because the new AWS account currently lacks the required service activation and verification state in `ap-south-1`.
 
@@ -81,7 +81,7 @@ The Photo control now accepts multiple image files in one selection and can be u
 - An individual Remove control.
 - A stable client-side attachment identifier.
 
-The current implementation previews and manages the images in the browser. Persisting all image objects with a submitted report is reserved for the AWS media integration stage because the existing report creation contract currently stores only optional single media URL fields.
+At submission time, each selected image is converted to a data URL, uploaded through the `media.upload` tRPC procedure, and represented as an attachment object in the report creation payload. The platform storage path is active now. The AWS path uses the prepared API Gateway presign route when backend mode is set to `aws`.
 
 ### 2.5 Review and submission behavior
 
@@ -302,21 +302,21 @@ The current project test suite contains authentication logout coverage and SevaF
 
 ## 10. Known limitations
 
-### 10.1 Attachments are not yet fully persisted with reports
+### 10.1 AWS end-to-end attachment execution is not yet verified
 
-Multiple images and voice notes are currently retained in the browser interaction state. Voice audio is also sent through the configured storage helper during transcription. The existing report creation contract does not yet carry an array of image and voice attachment references, so a later schema and API extension is required for complete report-level media persistence.
+The report schema now carries an `attachments[]` JSON contract. Platform submissions persist image attachment metadata in the reports table, and voice notes retain their storage keys and transcription references. The AWS Lambda contract also accepts attachment arrays. The complete AWS upload-to-DynamoDB verification remains pending on account activation and the Mumbai preflight.
 
 ### 10.2 AWS is prepared but not deployed
 
 The AWS SAM stack is ready for review but cannot be deployed until the Mumbai preflight passes. No deployment action has been taken.
 
-### 10.3 The current frontend still uses the platform backend
+### 10.3 Backend switching is prepared but remains on the platform default
 
-The existing UI continues to use the current tRPC procedures for assessment, report persistence, and dashboard reads. The AWS Lambda API is prepared as a deployment target but has not replaced the current backend.
+The frontend now sends `VITE_BACKEND_MODE` as a request mode. The safe default is `platform`. When `VITE_BACKEND_MODE=aws` and `SEVAFLOW_AWS_API_BASE_URL` are configured, report analysis, report creation, report reads, dashboard reads, and media uploads route through the prepared API Gateway and Lambda adapter. The AWS mode has not been enabled in the live preview because the AWS account preflight has not passed.
 
 ### 10.4 Image analysis is not yet connected to Bedrock
 
-The AWS Lambda handler has a media-input seam for image assessment, but the current frontend image attachments are not yet uploaded to the AWS media bucket or passed into the deployed Bedrock route. The current application can preview multiple images but does not yet include them in the structured assessment request.
+The AWS Lambda handler can read an image attachment from S3 and pass it into Bedrock. The current frontend persists image attachments and can upload them through the AWS media presign path in `aws` mode. The remaining product step is to upload image media before the assessment call so the initial `reports/analyze` request includes the verified S3 media key and produces visual evidence in the assessment.
 
 ### 10.5 Voice language selection is currently English-configured
 
@@ -324,11 +324,11 @@ The voice mutation currently sends `en` as the default language hint. The transc
 
 ## 11. Recommended next implementation sequence
 
-The safest next sequence is to wait for AWS service verification, run the Mumbai preflight with the account’s exact Nova 2 Lite inference-profile ID, and review the SAM change set without executing it.
+The safest next sequence is to wait for AWS service verification, run the Mumbai preflight with the account’s exact verified model or inference-profile ID, and review the SAM change set without executing it.
 
-After the preflight passes, the media contract should be extended so each submitted report stores an attachment array. Each attachment should include a type, storage key, MIME type, upload timestamp, and optional transcription reference.
+The media contract is now prepared. Each submitted report stores an attachment array whose entries include a type, storage key, MIME type, upload timestamp, and optional transcription reference.
 
-The frontend should then be connected to the AWS API behind a configuration switch. This allows the current platform backend to remain available as a fallback while the AWS path is tested with real text, image, and voice submissions.
+The frontend can now be connected to the AWS API through the configuration switch. The current platform backend remains available as a fallback while the AWS path is tested with real text, image, and voice submissions.
 
 The final product hardening phase should add language selection, upload progress, retry behavior, attachment size totals, report-level media display in the command center, and end-to-end browser tests.
 

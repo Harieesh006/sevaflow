@@ -70,7 +70,8 @@ async function getMediaBlock(mediaKey) {
 
 async function assess(input) {
   if (!modelId) throw new Error("BEDROCK_MODEL_ID is required");
-  const media = input.source === "Photo" ? await getMediaBlock(input.mediaKey) : null;
+  const imageAttachment = Array.isArray(input.attachments) ? input.attachments.find((attachment) => attachment.type === "image") : null;
+  const media = input.source === "Photo" || imageAttachment ? await getMediaBlock(input.mediaKey || imageAttachment?.storageKey) : null;
   const content = [{ text: `Resident description:\n${input.description}\n\nReported location:\n${input.location || "Location not provided"}` }];
   if (media) content.push(media);
   const response = await bedrock.send(new ConverseCommand({
@@ -142,6 +143,11 @@ exports.handler = async (event) => {
     const path = event.rawPath || event.path || "/";
     if (method === "OPTIONS") return json(204, {});
     if (method === "GET" && path.endsWith("/reports")) return json(200, { reports: await scanReports() });
+    if (method === "GET" && path.includes("/reports/") && !path.endsWith("/reports/analyze")) {
+      const id = decodeURIComponent(path.split("/reports/")[1]);
+      const report = (await scanReports()).find((item) => item.id === id);
+      return report ? json(200, report) : json(404, { error: "Report not found" });
+    }
     if (method === "GET" && path.endsWith("/dashboard")) return json(200, await dashboard());
     if (method === "POST" && path.endsWith("/media/presign")) return json(200, await createUploadUrl(parseBody(event)));
     if (method === "POST" && path.endsWith("/reports/analyze")) {
@@ -153,7 +159,7 @@ exports.handler = async (event) => {
       const input = parseBody(event);
       requireText(input.description, "description");
       const assessment = input.assessment || await assess(input);
-      const item = { id: `SF-${randomUUID().slice(0, 8).toUpperCase()}`, description: input.description, location: input.location || "Location pending", source: input.source || "Text", mediaKey: input.mediaKey || null, ...assessment, evidence: JSON.stringify(assessment.evidence), status: "New", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      const item = { id: `SF-${randomUUID().slice(0, 8).toUpperCase()}`, description: input.description, location: input.location || "Location pending", source: input.source || "Text", mediaKey: input.mediaKey || null, attachments: Array.isArray(input.attachments) ? input.attachments : [], ...assessment, evidence: JSON.stringify(assessment.evidence), status: "New", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       await dynamo.send(new PutCommand({ TableName: tableName, Item: item }));
       return json(201, { report: item });
     }

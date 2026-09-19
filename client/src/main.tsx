@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
+import { BACKEND_MODE } from "./lib/backend-config";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -53,14 +54,14 @@ const trpcClient = trpc.createClient({
             const prefix = `${COOKIE_NAME}=`;
             const pair = raw.split(";").find(s => s.trim().startsWith(prefix));
             const token = pair?.trim().slice(prefix.length);
-            if (token) {
-              return { Authorization: `Bearer ${token}` };
-            }
+              if (token) {
+              return { Authorization: `Bearer ${token}`, "x-sevaflow-backend-mode": BACKEND_MODE };
+              }
           }
         } catch {
           // sessionStorage unavailable
         }
-        return {};
+        return { "x-sevaflow-backend-mode": BACKEND_MODE };
       },
       fetch(input, init) {
         return globalThis.fetch(input, {

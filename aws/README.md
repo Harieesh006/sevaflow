@@ -1,10 +1,10 @@
 # SevaFlow AWS backend
 
-This directory contains the deployable AWS backend for SevaFlow. The existing SevaFlow UI and API contract remain unchanged. The application/data plane is intended for **`ap-south-1` (Mumbai)**; Bedrock model execution is selected separately through the required `BEDROCK_MODEL_ID` parameter and may use a regional model or a supported cross-Region inference profile.
+This directory contains the deployable AWS backend for SevaFlow. The application/data plane is intended for **`ap-south-1` (Mumbai)**; Bedrock model execution is selected separately through the required `BEDROCK_MODEL_ID` parameter and may use a regional model or a supported cross-Region inference profile. The frontend preserves the platform backend as the default and can select this API through `VITE_BACKEND_MODE=aws` together with `SEVAFLOW_AWS_API_BASE_URL`.
 
 ## Architecture
 
-The SAM stack provisions an encrypted S3 media bucket, a pay-per-request DynamoDB reports table, an HTTP API Gateway endpoint, and a Node.js Lambda handler. The handler exposes `/reports`, `/reports/analyze`, `/dashboard`, `/media/presign`, `/voice/transcribe`, and `/voice/transcribe/{jobName}`. Text complaints go directly to strict Bedrock assessment. Image and voice clients first request `/media/presign`, upload directly to S3, and then pass the returned `mediaKey`; voice uses that S3 object with Amazon Transcribe before assessment.
+The SAM stack provisions an encrypted S3 media bucket, a pay-per-request DynamoDB reports table, an HTTP API Gateway endpoint, and a Node.js Lambda handler. The handler exposes `/reports`, `/reports/{id}`, `/reports/analyze`, `/dashboard`, `/media/presign`, `/voice/transcribe`, and `/voice/transcribe/{jobName}`. Reports accept an `attachments[]` array with media type, storage key, MIME type, upload timestamp, and optional transcription reference. Text complaints go directly to strict Bedrock assessment. Image and voice clients first request `/media/presign`, upload directly to S3, and then pass the returned `mediaKey`; voice uses that S3 object with Amazon Transcribe before assessment.
 
 ## Current AWS account status
 
@@ -44,6 +44,23 @@ sam deploy \
 Execute the reviewed change set separately. `BedrockModelId` is intentionally required; there is no hard-coded regional Bedrock model ID in the template or Lambda handler.
 
 After deployment, capture the `ApiUrl`, `ReportsTableName`, and `MediaBucketName` outputs. The SevaFlow frontend should use the API URL for report analysis, report creation, dashboard reads, and voice transcription polling.
+
+## Backend mode switch
+
+Keep the platform path as the safe default:
+
+```bash
+VITE_BACKEND_MODE=platform
+```
+
+After the AWS API is deployed and smoke-tested, set the project configuration to:
+
+```bash
+VITE_BACKEND_MODE=aws
+SEVAFLOW_AWS_API_BASE_URL=https://...execute-api.ap-south-1.amazonaws.com
+```
+
+The server adapter routes report analysis, report creation, report reads, dashboard reads, and media uploads through API Gateway when AWS mode is explicitly selected. The platform path remains available as a fallback. The current voice mutation still uses the existing synchronous transcription path until the deployed Transcribe polling flow is connected to the client.
 
 ## Smoke tests after deployment
 

@@ -1,0 +1,1 @@
+ALTER TABLE `reports` MODIFY COLUMN `attachments` text NOT NULL;

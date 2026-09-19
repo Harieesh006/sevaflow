@@ -7,6 +7,8 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  backendMode: process.env.SEVAFLOW_BACKEND_MODE === "aws" ? "aws" : "platform",
+  awsApiBaseUrl: process.env.SEVAFLOW_AWS_API_BASE_URL ?? "",
   aiProvider: process.env.SEVAFLOW_AI_PROVIDER ?? "platform",
   awsRegion: process.env.AWS_REGION ?? "ap-south-1",
   awsAccessKeyId: process.env.AWS_ACCESS_KEY_ID ?? "",
