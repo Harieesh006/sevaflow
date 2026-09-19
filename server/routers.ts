@@ -6,8 +6,8 @@ import { assessIssue } from "./issue-intelligence";
 import { createReport, getDashboardMetrics, getReportById, getReports } from "./db";
 import { nanoid } from "nanoid";
 import { z } from "zod";
-import { storageGetSignedUrl, storagePut } from "./storage";
-import { transcribeAudio } from "./_core/voiceTranscription";
+import { storagePut } from "./storage";
+import { transcribeAudioBuffer } from "./_core/voiceTranscription";
 
 const assessmentInput = z.object({
   category: z.string().min(1),
@@ -93,10 +93,10 @@ export const appRouter = router({
 
         const mimeType = input.mimeType.split(";", 1)[0]?.trim().toLowerCase() || "audio/webm";
         const extension = mimeType.split("/")[1] || "webm";
-        const uploaded = await storagePut(`voice/recording.${extension}`, audio, mimeType);
-        const audioUrl = await storageGetSignedUrl(uploaded.key);
-        const result = await transcribeAudio({
-          audioUrl,
+        await storagePut(`voice/recording.${extension}`, audio, mimeType);
+        const result = await transcribeAudioBuffer({
+          audioBuffer: audio,
+          mimeType,
           language: input.language,
           prompt: "Transcribe this civic complaint clearly, preserving place names and the speaker's language.",
         });

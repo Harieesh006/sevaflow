@@ -123,66 +123,7 @@ export async function transcribeAudio(
       };
     }
 
-    // Step 3: Create FormData for multipart upload to Whisper API
-    const formData = new FormData();
-    
-    // Create a Blob from the buffer and append to form
-    const filename = `audio.${getFileExtension(mimeType)}`;
-    const audioBlob = new Blob([new Uint8Array(audioBuffer)], { type: mimeType });
-    formData.append("file", audioBlob, filename);
-    
-    formData.append("model", "whisper-1");
-    formData.append("response_format", "verbose_json");
-    
-    // Add prompt - use custom prompt if provided, otherwise generate based on language
-    const prompt = options.prompt || (
-      options.language 
-        ? `Transcribe the user's voice to text, the user's working language is ${getLanguageName(options.language)}`
-        : "Transcribe the user's voice to text"
-    );
-    formData.append("prompt", prompt);
-
-    // Step 4: Call the transcription service
-    const baseUrl = ENV.forgeApiUrl.endsWith("/")
-      ? ENV.forgeApiUrl
-      : `${ENV.forgeApiUrl}/`;
-    
-    const fullUrl = new URL(
-      "v1/audio/transcriptions",
-      baseUrl
-    ).toString();
-
-    const response = await fetch(fullUrl, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${ENV.forgeApiKey}`,
-        "Accept-Encoding": "identity",
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      return {
-        error: "Transcription service request failed",
-        code: "TRANSCRIPTION_FAILED",
-        details: `${response.status} ${response.statusText}${errorText ? `: ${errorText}` : ""}`
-      };
-    }
-
-    // Step 5: Parse and return the transcription result
-    const whisperResponse = await response.json() as WhisperResponse;
-    
-    // Validate response structure
-    if (!whisperResponse.text || typeof whisperResponse.text !== 'string') {
-      return {
-        error: "Invalid transcription response",
-        code: "SERVICE_ERROR",
-        details: "Transcription service returned an invalid response format"
-      };
-    }
-
-    return whisperResponse; // Return native Whisper API response directly
+    return transcribeAudioBuffer({ audioBuffer, mimeType, language: options.language, prompt: options.prompt });
 
   } catch (error) {
     // Handle unexpected errors
@@ -191,6 +132,48 @@ export async function transcribeAudio(
       code: "SERVICE_ERROR",
       details: error instanceof Error ? error.message : "An unexpected error occurred"
     };
+  }
+}
+
+
+export async function transcribeAudioBuffer(options: {
+  audioBuffer: Buffer;
+  mimeType: string;
+  language?: string;
+  prompt?: string;
+}): Promise<TranscriptionResponse | TranscriptionError> {
+  try {
+    const normalizedMimeType = options.mimeType.split(";", 1)[0]?.trim().toLowerCase() || "audio/webm";
+    const formData = new FormData();
+    const filename = `audio.${getFileExtension(normalizedMimeType)}`;
+    const audioBlob = new Blob([new Uint8Array(options.audioBuffer)], { type: normalizedMimeType });
+    formData.append("file", audioBlob, filename);
+    formData.append("model", "whisper-1");
+    formData.append("response_format", "verbose_json");
+    const prompt = options.prompt || (
+      options.language
+        ? `Transcribe the user's voice to text, the user's working language is ${getLanguageName(options.language)}`
+        : "Transcribe the user's voice to text"
+    );
+    formData.append("prompt", prompt);
+
+    const baseUrl = ENV.forgeApiUrl.endsWith("/") ? ENV.forgeApiUrl : `${ENV.forgeApiUrl}/`;
+    const response = await fetch(new URL("v1/audio/transcriptions", baseUrl).toString(), {
+      method: "POST",
+      headers: { authorization: `Bearer ${ENV.forgeApiKey}`, "Accept-Encoding": "identity" },
+      body: formData,
+    });
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      return { error: "Transcription service request failed", code: "TRANSCRIPTION_FAILED", details: `${response.status} ${response.statusText}${errorText ? `: ${errorText}` : ""}` };
+    }
+    const whisperResponse = await response.json() as WhisperResponse;
+    if (!whisperResponse.text || typeof whisperResponse.text !== "string") {
+      return { error: "Invalid transcription response", code: "SERVICE_ERROR", details: "Transcription service returned an invalid response format" };
+    }
+    return whisperResponse;
+  } catch (error) {
+    return { error: "Voice transcription failed", code: "SERVICE_ERROR", details: error instanceof Error ? error.message : "An unexpected error occurred" };
   }
 }
 
