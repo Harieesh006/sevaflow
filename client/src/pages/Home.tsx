@@ -53,6 +53,9 @@ type Report = {
   createdAt: string;
 };
 
+type ImageAttachment = { id: string; name: string; url: string };
+type VoiceNote = { id: string; url: string; text: string; seconds: number };
+
 function priorityStyles(priority: Priority) {
   if (priority === "High") return "bg-[#ffe3d6] text-[#a53d17]";
   if (priority === "Medium") return "bg-[#fff2bb] text-[#756000]";
@@ -101,8 +104,10 @@ function CitizenView({
   onVoice,
   recording,
   recordingSeconds,
-  voicePreviewUrl,
-  onClearVoice,
+  imageAttachments,
+  voiceNotes,
+  onRemoveImage,
+  onRemoveVoice,
 }: {
   description: string;
   setDescription: (value: string) => void;
@@ -119,8 +124,10 @@ function CitizenView({
   onVoice: () => void;
   recording: boolean;
   recordingSeconds: number;
-  voicePreviewUrl: string;
-  onClearVoice: () => void;
+  imageAttachments: ImageAttachment[];
+  voiceNotes: VoiceNote[];
+  onRemoveImage: (id: string) => void;
+  onRemoveVoice: (id: string) => void;
 }) {
   return (
     <main className="mx-auto max-w-[1440px] px-5 pb-12 pt-8 lg:px-10 lg:pt-12">
@@ -158,10 +165,10 @@ function CitizenView({
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <label className={`group relative flex min-h-[116px] cursor-pointer flex-col justify-between rounded-2xl border-2 border-dashed p-4 transition-all ${fileName ? "border-[#3fb69f] bg-[#eff9f3]" : "border-[#dce5dc] bg-[#fbfcf8] hover:border-[#93bca8] hover:bg-[#f3f9f3]"}`}>
-              <input aria-label="Upload a photo" type="file" accept="image/*" className="absolute inset-0 cursor-pointer opacity-0" onChange={onFileChange} />
-              {filePreview ? <img src={filePreview} alt="Uploaded issue preview" className="absolute inset-0 h-full w-full rounded-2xl object-cover opacity-25" /> : null}
+              <input aria-label="Upload photos" type="file" accept="image/*" multiple className="absolute inset-0 cursor-pointer opacity-0" onChange={onFileChange} />
+              {imageAttachments[0] ? <img src={imageAttachments[0].url} alt="Uploaded issue preview" className="absolute inset-0 h-full w-full rounded-2xl object-cover opacity-25" /> : null}
               <div className="relative flex items-center justify-between"><div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#e3f3e8] text-[#2d8f7f]"><Camera className="h-4 w-4" /></div><Upload className="h-4 w-4 text-[#91a7a0]" /></div>
-              <div className="relative"><div className="text-sm font-bold text-[#315252]">Photo</div><div className="mt-1 text-[11px] text-[#769090]">{fileName || "Show us the issue"}</div></div>
+              <div className="relative"><div className="text-sm font-bold text-[#315252]">Photo</div><div className="mt-1 text-[11px] text-[#769090]">{imageAttachments.length ? `${imageAttachments.length} photo${imageAttachments.length === 1 ? "" : "s"} attached` : "Add one or more images"}</div></div>
             </label>
             <button type="button" onClick={onVoice} className="group flex min-h-[116px] flex-col justify-between rounded-2xl border border-[#dce5dc] bg-[#fbfcf8] p-4 text-left transition-all hover:border-[#93bca8] hover:bg-[#f3f9f3]">
               <div className="flex items-center justify-between"><div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#e8e1fa] text-[#7056bf]"><Mic className="h-4 w-4" /></div><AudioLines className="h-4 w-4 text-[#91a7a0]" /></div>
@@ -173,7 +180,8 @@ function CitizenView({
             </div>
           </div>
 
-          {voicePreviewUrl ? <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[#dce5dc] bg-[#f5faf2] p-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#e8e1fa] text-[#7056bf]"><Mic className="h-4 w-4" /></div><div><div className="text-xs font-bold text-[#315252]">Voice note ready</div><div className="mt-1 text-[11px] text-[#769090]">Replay it before submitting</div></div></div><div className="flex items-center gap-3"><audio controls src={voicePreviewUrl} className="h-9 max-w-[220px]" /><button type="button" onClick={onClearVoice} className="text-xs font-bold text-[#9b4d2c] hover:underline">Remove</button></div></div> : null}
+          {imageAttachments.length ? <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{imageAttachments.map((image, index) => <div key={image.id} className="relative overflow-hidden rounded-2xl border border-[#dce5dc] bg-[#f5faf2]"><img src={image.url} alt={`Attached issue image ${index + 1}`} className="h-24 w-full object-cover" /><button type="button" onClick={() => onRemoveImage(image.id)} className="absolute right-2 top-2 rounded-full bg-[#173b3b]/85 px-2 py-1 text-[10px] font-bold text-white">Remove</button></div>)}</div> : null}
+          {voiceNotes.length ? <div className="mt-4 space-y-3">{voiceNotes.map((note, index) => <div key={note.id} className="flex flex-col gap-3 rounded-2xl border border-[#dce5dc] bg-[#f5faf2] p-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#e8e1fa] text-[#7056bf]"><Mic className="h-4 w-4" /></div><div><div className="text-xs font-bold text-[#315252]">Voice note {index + 1}</div><div className="mt-1 text-[11px] text-[#769090]">Replay or remove this recording</div></div></div><div className="flex items-center gap-3"><audio controls src={note.url} className="h-9 max-w-[220px]" /><button type="button" onClick={() => onRemoveVoice(note.id)} className="text-xs font-bold text-[#9b4d2c] hover:underline">Remove</button></div></div>)}</div> : null}
 
           <div className="mt-5 space-y-4">
             <div>
@@ -295,13 +303,14 @@ export default function Home() {
   const [location, setLocation] = useState("Anna Nagar, Chennai");
   const [fileName, setFileName] = useState("");
   const [filePreview, setFilePreview] = useState("");
+  const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [source, setSource] = useState<Report["source"]>("Text");
   const [submittedReport, setSubmittedReport] = useState<Report | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [voicePreviewUrl, setVoicePreviewUrl] = useState("");
+  const [voiceNotes, setVoiceNotes] = useState<VoiceNote[]>([]);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const reportsQuery = trpc.reports.list.useQuery({ limit: 100 });
   const dashboardQuery = trpc.reports.dashboard.useQuery();
@@ -320,12 +329,14 @@ export default function Home() {
   }, [recording]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setFileName(file.name);
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) return;
+    const additions = files.map((file) => ({ id: crypto.randomUUID(), name: file.name, url: URL.createObjectURL(file) }));
+    setImageAttachments((previous) => [...previous, ...additions]);
+    setFileName(additions.map((file) => file.name).join(", "));
     setSource("Photo");
-    setFilePreview(URL.createObjectURL(file));
-    toast.success("Photo staged", { description: "S3 media persistence is the next integration layer." });
+    setFilePreview(additions[0]?.url ?? "");
+    toast.success(`${files.length} photo${files.length === 1 ? "" : "s"} attached`, { description: "Add more images or review them below." });
   };
 
   const handleAnalyze = async () => {
@@ -373,6 +384,7 @@ export default function Home() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((type) => MediaRecorder.isTypeSupported(type)) || "";
+      const startedAt = Date.now();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       const chunks: Blob[] = [];
       recorderRef.current = recorder;
@@ -385,10 +397,6 @@ export default function Home() {
         setRecording(false);
         const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
         const previewUrl = URL.createObjectURL(blob);
-        setVoicePreviewUrl((previousUrl) => {
-          if (previousUrl) URL.revokeObjectURL(previousUrl);
-          return previewUrl;
-        });
         if (blob.size > 16 * 1024 * 1024) {
           toast.error("Recording is too large", { description: "Please keep voice notes under 16MB." });
           return;
@@ -402,8 +410,9 @@ export default function Home() {
         try {
           toast.info("Transcribing voice note…", { description: "Your recording is being converted to text." });
           const transcript = await transcribeMutation.mutateAsync({ audioBase64, mimeType: blob.type || "audio/webm", language: "en" });
+          setVoiceNotes((previous) => [...previous, { id: crypto.randomUUID(), url: previewUrl, text: transcript.text, seconds: Math.max(1, Math.floor((Date.now() - startedAt) / 1000)) }]);
           setSource("Voice");
-          setDescription(transcript.text);
+          setDescription((previous) => previous.trim() ? `${previous.trim()}\n\n${transcript.text}` : transcript.text);
           toast.success("Voice transcribed", { description: "Review the text, then structure the report." });
         } catch (error) {
           toast.error("Voice transcription failed", { description: error instanceof Error ? error.message : "Please try again." });
@@ -417,10 +426,19 @@ export default function Home() {
     }
   };
 
-  const handleClearVoice = () => {
-    setVoicePreviewUrl((previousUrl) => {
-      if (previousUrl) URL.revokeObjectURL(previousUrl);
-      return "";
+  const handleRemoveImage = (id: string) => {
+    setImageAttachments((previous) => {
+      const removed = previous.find((image) => image.id === id);
+      if (removed) URL.revokeObjectURL(removed.url);
+      return previous.filter((image) => image.id !== id);
+    });
+  };
+
+  const handleRemoveVoice = (id: string) => {
+    setVoiceNotes((previous) => {
+      const removed = previous.find((note) => note.id === id);
+      if (removed) URL.revokeObjectURL(removed.url);
+      return previous.filter((note) => note.id !== id);
     });
   };
 
@@ -430,7 +448,7 @@ export default function Home() {
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-4 lg:px-10"><button type="button" onClick={() => setView("report")} aria-label="Go to SevaFlow home"><AppMark /></button><div className="hidden items-center gap-2 rounded-full border border-[#dfe7dd] bg-[#fbfcf8] p-1 md:flex"><button type="button" onClick={() => setView("report")} className={`rounded-full px-4 py-2 text-xs font-bold transition-colors ${view === "report" ? "bg-[#173b3b] text-white" : "text-[#6f8781] hover:text-[#315252]"}`}>Report an issue</button><button type="button" onClick={() => setView("dashboard")} className={`rounded-full px-4 py-2 text-xs font-bold transition-colors ${view === "dashboard" ? "bg-[#173b3b] text-white" : "text-[#6f8781] hover:text-[#315252]"}`}>Command center</button></div><div className="flex items-center gap-3"><div className="hidden items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#77918a] sm:flex"><Cloud className="h-3.5 w-3.5 text-[#3fb69f]" /> AWS-ready workflow</div><div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#dce5dc] bg-[#fffefa] text-xs font-bold text-[#315252]">AK</div></div></div>
       </header>
       <div className="mx-auto flex max-w-[1440px] items-center justify-between px-5 pb-2 pt-4 md:hidden"><button type="button" onClick={() => setView("report")} className={`rounded-full px-3 py-2 text-xs font-bold ${view === "report" ? "bg-[#173b3b] text-white" : "text-[#6f8781]"}`}>Report</button><button type="button" onClick={() => setView("dashboard")} className={`rounded-full px-3 py-2 text-xs font-bold ${view === "dashboard" ? "bg-[#173b3b] text-white" : "text-[#6f8781]"}`}>Command center</button></div>
-      {view === "report" ? <CitizenView description={description} setDescription={setDescription} location={location} setLocation={setLocation} fileName={fileName} filePreview={filePreview} onFileChange={handleFileChange} onAnalyze={handleAnalyze} analyzing={analyzing} assessment={assessment} onSubmit={handleSubmit} submittedReport={submittedReport} onVoice={() => void handleVoice()} recording={recording} recordingSeconds={recordingSeconds} voicePreviewUrl={voicePreviewUrl} onClearVoice={handleClearVoice} /> : <DashboardView reports={reports} metrics={metrics} onBackToReport={() => setView("report")} />}
+      {view === "report" ? <CitizenView description={description} setDescription={setDescription} location={location} setLocation={setLocation} fileName={fileName} filePreview={filePreview} onFileChange={handleFileChange} onAnalyze={handleAnalyze} analyzing={analyzing} assessment={assessment} onSubmit={handleSubmit} submittedReport={submittedReport} onVoice={() => void handleVoice()} recording={recording} recordingSeconds={recordingSeconds} imageAttachments={imageAttachments} voiceNotes={voiceNotes} onRemoveImage={handleRemoveImage} onRemoveVoice={handleRemoveVoice} /> : <DashboardView reports={reports} metrics={metrics} onBackToReport={() => setView("report")} />}
       <footer className="mx-auto flex max-w-[1440px] flex-col gap-3 border-t border-[#dfe6da] px-5 py-6 text-[11px] text-[#8aa09a] sm:flex-row sm:items-center sm:justify-between lg:px-10"><div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-[#3fb69f]" /> SevaFlow AI · Structured service requests for everyday places</div><div className="flex items-center gap-4"><span>Assessment is assistive, not definitive.</span><span className="hidden text-[#6a8982] sm:inline-flex">S3 · Lambda · Bedrock · DynamoDB</span></div></footer>
     </div>
   );
