@@ -1,6 +1,7 @@
 const { randomUUID } = require("node:crypto");
 const { BedrockRuntimeClient, ConverseCommand } = require("@aws-sdk/client-bedrock-runtime");
-const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { S3Client, GetObjectCommand, PutObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { TranscribeClient, StartTranscriptionJobCommand, GetTranscriptionJobCommand } = require("@aws-sdk/client-transcribe");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { DynamoDBDocumentClient, PutCommand, ScanCommand } = require("@aws-sdk/lib-dynamodb");
@@ -13,6 +14,7 @@ const bedrock = new BedrockRuntimeClient({ region });
 const s3 = new S3Client({ region });
 const transcribe = new TranscribeClient({ region });
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
+class BadRequestError extends Error {}
 
 const assessmentSchema = {
   type: "object",
@@ -39,6 +41,11 @@ const json = (statusCode, body) => ({
 const parseBody = (event) => {
   if (!event.body) return {};
   return typeof event.body === "string" ? JSON.parse(event.body) : event.body;
+};
+
+const requireText = (value, name) => {
+  if (typeof value !== "string" || !value.trim()) throw new BadRequestError(`${name} is required`);
+  return value.trim();
 };
 
 const normalizeAssessment = (raw) => ({
@@ -106,6 +113,7 @@ async function dashboard() {
 }
 
 async function startTranscription(mediaKey) {
+  requireText(mediaKey, "mediaKey");
   const jobName = `sevaflow-${randomUUID()}`;
   await transcribe.send(new StartTranscriptionJobCommand({
     TranscriptionJobName: jobName,
@@ -117,6 +125,17 @@ async function startTranscription(mediaKey) {
   return { jobName, status: "IN_PROGRESS" };
 }
 
+async function createUploadUrl(input) {
+  const filename = requireText(input.filename, "filename").replace(/[^a-zA-Z0-9._-]/g, "-");
+  const contentType = requireText(input.contentType, "contentType");
+  if (!contentType.startsWith("audio/") && !contentType.startsWith("image/")) {
+    throw new BadRequestError("Only audio and image uploads are supported");
+  }
+  const mediaKey = `media/${randomUUID()}-${filename}`;
+  const uploadUrl = await getSignedUrl(s3, new PutObjectCommand({ Bucket: mediaBucket, Key: mediaKey, ContentType: contentType }), { expiresIn: 900 });
+  return { mediaKey, uploadUrl, expiresIn: 900 };
+}
+
 exports.handler = async (event) => {
   try {
     const method = event.requestContext?.http?.method || event.httpMethod || "GET";
@@ -124,9 +143,15 @@ exports.handler = async (event) => {
     if (method === "OPTIONS") return json(204, {});
     if (method === "GET" && path.endsWith("/reports")) return json(200, { reports: await scanReports() });
     if (method === "GET" && path.endsWith("/dashboard")) return json(200, await dashboard());
-    if (method === "POST" && path.endsWith("/reports/analyze")) return json(200, { assessment: await assess(parseBody(event)) });
+    if (method === "POST" && path.endsWith("/media/presign")) return json(200, await createUploadUrl(parseBody(event)));
+    if (method === "POST" && path.endsWith("/reports/analyze")) {
+      const input = parseBody(event);
+      requireText(input.description, "description");
+      return json(200, { assessment: await assess(input) });
+    }
     if (method === "POST" && path.endsWith("/reports")) {
       const input = parseBody(event);
+      requireText(input.description, "description");
       const assessment = input.assessment || await assess(input);
       const item = { id: `SF-${randomUUID().slice(0, 8).toUpperCase()}`, description: input.description, location: input.location || "Location pending", source: input.source || "Text", mediaKey: input.mediaKey || null, ...assessment, evidence: JSON.stringify(assessment.evidence), status: "New", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       await dynamo.send(new PutCommand({ TableName: tableName, Item: item }));
@@ -141,6 +166,6 @@ exports.handler = async (event) => {
     return json(404, { error: "Not found" });
   } catch (error) {
     console.error(error);
-    return json(500, { error: error instanceof Error ? error.message : "Internal server error" });
+    return json(error instanceof BadRequestError ? 400 : 500, { error: error instanceof Error ? error.message : "Internal server error" });
   }
 };

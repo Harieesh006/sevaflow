@@ -4,7 +4,7 @@ This directory contains the deployable AWS backend for SevaFlow. The existing Se
 
 ## Architecture
 
-The SAM stack provisions an encrypted S3 media bucket, a pay-per-request DynamoDB reports table, an HTTP API Gateway endpoint, and a Node.js Lambda handler. The handler exposes `/reports`, `/reports/analyze`, `/dashboard`, `/voice/transcribe`, and `/voice/transcribe/{jobName}`. Text and image complaints use Amazon Bedrock Converse with a forced tool schema. Voice complaints use S3 plus Amazon Transcribe before assessment.
+The SAM stack provisions an encrypted S3 media bucket, a pay-per-request DynamoDB reports table, an HTTP API Gateway endpoint, and a Node.js Lambda handler. The handler exposes `/reports`, `/reports/analyze`, `/dashboard`, `/media/presign`, `/voice/transcribe`, and `/voice/transcribe/{jobName}`. Text complaints go directly to strict Bedrock assessment. Image and voice clients first request `/media/presign`, upload directly to S3, and then pass the returned `mediaKey`; voice uses that S3 object with Amazon Transcribe before assessment.
 
 ## Current AWS account status
 
