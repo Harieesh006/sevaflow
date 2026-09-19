@@ -86,7 +86,8 @@ export const appRouter = router({
         language: z.string().length(2).default("en"),
       }))
       .mutation(async ({ input }) => {
-        const base64 = input.audioBase64.replace(/^data:[^;]+;base64,/, "");
+        const separatorIndex = input.audioBase64.indexOf(",");
+        const base64 = separatorIndex >= 0 ? input.audioBase64.slice(separatorIndex + 1) : input.audioBase64;
         const audio = Buffer.from(base64, "base64");
         if (!audio.length) throw new Error("Voice recording is empty");
         if (audio.length > 16 * 1024 * 1024) throw new Error("Voice recording exceeds the 16MB limit");
