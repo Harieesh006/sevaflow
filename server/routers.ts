@@ -6,6 +6,8 @@ import { assessIssue } from "./issue-intelligence";
 import { createReport, getDashboardMetrics, getReportById, getReports } from "./db";
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import { storageGetSignedUrl, storagePut } from "./storage";
+import { transcribeAudio } from "./_core/voiceTranscription";
 
 const assessmentInput = z.object({
   category: z.string().min(1),
@@ -74,6 +76,32 @@ export const appRouter = router({
       .query(({ input }) => getReportById(input.id)),
 
     dashboard: publicProcedure.query(() => getDashboardMetrics()),
+  }),
+
+  voice: router({
+    transcribe: publicProcedure
+      .input(z.object({
+        audioBase64: z.string().min(1),
+        mimeType: z.string().regex(/^audio\//),
+        language: z.string().length(2).default("en"),
+      }))
+      .mutation(async ({ input }) => {
+        const base64 = input.audioBase64.replace(/^data:[^;]+;base64,/, "");
+        const audio = Buffer.from(base64, "base64");
+        if (!audio.length) throw new Error("Voice recording is empty");
+        if (audio.length > 16 * 1024 * 1024) throw new Error("Voice recording exceeds the 16MB limit");
+
+        const extension = input.mimeType.split("/")[1]?.split(";")[0] || "webm";
+        const uploaded = await storagePut(`voice/recording.${extension}`, audio, input.mimeType);
+        const audioUrl = await storageGetSignedUrl(uploaded.key);
+        const result = await transcribeAudio({
+          audioUrl,
+          language: input.language,
+          prompt: "Transcribe this civic complaint clearly, preserving place names and the speaker's language.",
+        });
+        if ("error" in result) throw new Error(result.details ? `${result.error}: ${result.details}` : result.error);
+        return result;
+      }),
   }),
 });
 
