@@ -91,8 +91,9 @@ export const appRouter = router({
         if (!audio.length) throw new Error("Voice recording is empty");
         if (audio.length > 16 * 1024 * 1024) throw new Error("Voice recording exceeds the 16MB limit");
 
-        const extension = input.mimeType.split("/")[1]?.split(";")[0] || "webm";
-        const uploaded = await storagePut(`voice/recording.${extension}`, audio, input.mimeType);
+        const mimeType = input.mimeType.split(";", 1)[0]?.trim().toLowerCase() || "audio/webm";
+        const extension = mimeType.split("/")[1] || "webm";
+        const uploaded = await storagePut(`voice/recording.${extension}`, audio, mimeType);
         const audioUrl = await storageGetSignedUrl(uploaded.key);
         const result = await transcribeAudio({
           audioUrl,
