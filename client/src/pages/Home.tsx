@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowUpRight,
@@ -100,6 +100,9 @@ function CitizenView({
   submittedReport,
   onVoice,
   recording,
+  recordingSeconds,
+  voicePreviewUrl,
+  onClearVoice,
 }: {
   description: string;
   setDescription: (value: string) => void;
@@ -115,6 +118,9 @@ function CitizenView({
   submittedReport: Report | null;
   onVoice: () => void;
   recording: boolean;
+  recordingSeconds: number;
+  voicePreviewUrl: string;
+  onClearVoice: () => void;
 }) {
   return (
     <main className="mx-auto max-w-[1440px] px-5 pb-12 pt-8 lg:px-10 lg:pt-12">
@@ -159,13 +165,15 @@ function CitizenView({
             </label>
             <button type="button" onClick={onVoice} className="group flex min-h-[116px] flex-col justify-between rounded-2xl border border-[#dce5dc] bg-[#fbfcf8] p-4 text-left transition-all hover:border-[#93bca8] hover:bg-[#f3f9f3]">
               <div className="flex items-center justify-between"><div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#e8e1fa] text-[#7056bf]"><Mic className="h-4 w-4" /></div><AudioLines className="h-4 w-4 text-[#91a7a0]" /></div>
-              <div><div className="text-sm font-bold text-[#315252]">{recording ? "Listening…" : "Voice"}</div><div className="mt-1 text-[11px] text-[#769090]">{recording ? "Tap to stop and transcribe" : "Speak in your language"}</div></div>
+              <div><div className="flex items-center gap-2 text-sm font-bold text-[#315252]">{recording ? <span className="h-2 w-2 animate-pulse rounded-full bg-[#ef795c]" /> : null}{recording ? `Recording ${String(Math.floor(recordingSeconds / 60)).padStart(2, "0")}:${String(recordingSeconds % 60).padStart(2, "0")}` : "Voice"}</div><div className="mt-1 text-[11px] text-[#769090]">{recording ? "Tap to stop and transcribe" : "Speak in your language"}</div></div>
             </button>
             <div className="flex min-h-[116px] flex-col justify-between rounded-2xl border border-[#dce5dc] bg-[#fbfcf8] p-4">
               <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#fff0dc] text-[#b47236]"><Landmark className="h-4 w-4" /></div>
               <div><div className="text-sm font-bold text-[#315252]">Text</div><div className="mt-1 text-[11px] text-[#769090]">Add the details below</div></div>
             </div>
           </div>
+
+          {voicePreviewUrl ? <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[#dce5dc] bg-[#f5faf2] p-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#e8e1fa] text-[#7056bf]"><Mic className="h-4 w-4" /></div><div><div className="text-xs font-bold text-[#315252]">Voice note ready</div><div className="mt-1 text-[11px] text-[#769090]">Replay it before submitting</div></div></div><div className="flex items-center gap-3"><audio controls src={voicePreviewUrl} className="h-9 max-w-[220px]" /><button type="button" onClick={onClearVoice} className="text-xs font-bold text-[#9b4d2c] hover:underline">Remove</button></div></div> : null}
 
           <div className="mt-5 space-y-4">
             <div>
@@ -292,6 +300,8 @@ export default function Home() {
   const [source, setSource] = useState<Report["source"]>("Text");
   const [submittedReport, setSubmittedReport] = useState<Report | null>(null);
   const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [voicePreviewUrl, setVoicePreviewUrl] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const reportsQuery = trpc.reports.list.useQuery({ limit: 100 });
   const dashboardQuery = trpc.reports.dashboard.useQuery();
@@ -300,6 +310,14 @@ export default function Home() {
   const transcribeMutation = trpc.voice.transcribe.useMutation();
   const reports = useMemo(() => (reportsQuery.data ?? []).map((report) => toDisplayReport(report as BackendReport)), [reportsQuery.data]);
   const metrics = dashboardQuery.data ?? EMPTY_DASHBOARD;
+
+  useEffect(() => {
+    if (!recording) return;
+    const startedAt = Date.now();
+    setRecordingSeconds(0);
+    const timer = window.setInterval(() => setRecordingSeconds(Math.floor((Date.now() - startedAt) / 1000)), 250);
+    return () => window.clearInterval(timer);
+  }, [recording]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -366,6 +384,11 @@ export default function Home() {
         recorderRef.current = null;
         setRecording(false);
         const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        const previewUrl = URL.createObjectURL(blob);
+        setVoicePreviewUrl((previousUrl) => {
+          if (previousUrl) URL.revokeObjectURL(previousUrl);
+          return previewUrl;
+        });
         if (blob.size > 16 * 1024 * 1024) {
           toast.error("Recording is too large", { description: "Please keep voice notes under 16MB." });
           return;
@@ -394,13 +417,20 @@ export default function Home() {
     }
   };
 
+  const handleClearVoice = () => {
+    setVoicePreviewUrl((previousUrl) => {
+      if (previousUrl) URL.revokeObjectURL(previousUrl);
+      return "";
+    });
+  };
+
   return (
     <div className="min-h-screen bg-[#f7f5ef] text-[#173b3b]">
       <header className="sticky top-0 z-30 border-b border-[#e4e9df]/90 bg-[#f7f5ef]/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-4 lg:px-10"><button type="button" onClick={() => setView("report")} aria-label="Go to SevaFlow home"><AppMark /></button><div className="hidden items-center gap-2 rounded-full border border-[#dfe7dd] bg-[#fbfcf8] p-1 md:flex"><button type="button" onClick={() => setView("report")} className={`rounded-full px-4 py-2 text-xs font-bold transition-colors ${view === "report" ? "bg-[#173b3b] text-white" : "text-[#6f8781] hover:text-[#315252]"}`}>Report an issue</button><button type="button" onClick={() => setView("dashboard")} className={`rounded-full px-4 py-2 text-xs font-bold transition-colors ${view === "dashboard" ? "bg-[#173b3b] text-white" : "text-[#6f8781] hover:text-[#315252]"}`}>Command center</button></div><div className="flex items-center gap-3"><div className="hidden items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#77918a] sm:flex"><Cloud className="h-3.5 w-3.5 text-[#3fb69f]" /> AWS-ready workflow</div><div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#dce5dc] bg-[#fffefa] text-xs font-bold text-[#315252]">AK</div></div></div>
       </header>
       <div className="mx-auto flex max-w-[1440px] items-center justify-between px-5 pb-2 pt-4 md:hidden"><button type="button" onClick={() => setView("report")} className={`rounded-full px-3 py-2 text-xs font-bold ${view === "report" ? "bg-[#173b3b] text-white" : "text-[#6f8781]"}`}>Report</button><button type="button" onClick={() => setView("dashboard")} className={`rounded-full px-3 py-2 text-xs font-bold ${view === "dashboard" ? "bg-[#173b3b] text-white" : "text-[#6f8781]"}`}>Command center</button></div>
-      {view === "report" ? <CitizenView description={description} setDescription={setDescription} location={location} setLocation={setLocation} fileName={fileName} filePreview={filePreview} onFileChange={handleFileChange} onAnalyze={handleAnalyze} analyzing={analyzing} assessment={assessment} onSubmit={handleSubmit} submittedReport={submittedReport} onVoice={() => void handleVoice()} recording={recording} /> : <DashboardView reports={reports} metrics={metrics} onBackToReport={() => setView("report")} />}
+      {view === "report" ? <CitizenView description={description} setDescription={setDescription} location={location} setLocation={setLocation} fileName={fileName} filePreview={filePreview} onFileChange={handleFileChange} onAnalyze={handleAnalyze} analyzing={analyzing} assessment={assessment} onSubmit={handleSubmit} submittedReport={submittedReport} onVoice={() => void handleVoice()} recording={recording} recordingSeconds={recordingSeconds} voicePreviewUrl={voicePreviewUrl} onClearVoice={handleClearVoice} /> : <DashboardView reports={reports} metrics={metrics} onBackToReport={() => setView("report")} />}
       <footer className="mx-auto flex max-w-[1440px] flex-col gap-3 border-t border-[#dfe6da] px-5 py-6 text-[11px] text-[#8aa09a] sm:flex-row sm:items-center sm:justify-between lg:px-10"><div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-[#3fb69f]" /> SevaFlow AI · Structured service requests for everyday places</div><div className="flex items-center gap-4"><span>Assessment is assistive, not definitive.</span><span className="hidden text-[#6a8982] sm:inline-flex">S3 · Lambda · Bedrock · DynamoDB</span></div></footer>
     </div>
   );
